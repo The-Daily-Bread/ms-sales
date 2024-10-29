@@ -7,8 +7,12 @@ import com.padaria.ms_sales.dtos.SaleDto;
 import com.padaria.ms_sales.models.ProductModel;
 import com.padaria.ms_sales.models.ProductSaleModel;
 import com.padaria.ms_sales.models.SaleModel;
+import com.padaria.ms_sales.queue.MessagingRabbitmqApplication;
+import com.padaria.ms_sales.queue.Receiver;
+import com.padaria.ms_sales.queue.Runner;
 import com.padaria.ms_sales.services.SaleService;
 import jakarta.validation.Valid;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -68,16 +72,24 @@ public class SaleController {
         paymentRequest.setTotalValue(saleModel.getTotalValue());
         paymentRequest.setPaymentMethod(saleModel.getPaymentMethod());
 
-        ResponseEntity<PaymentResponseDto> paymentResponse = restTemplate.postForEntity(
-                paymentServiceUrl + "/payments",
-                paymentRequest,
-                PaymentResponseDto.class
-        );
+        try {
+            ResponseEntity<PaymentResponseDto> paymentResponse = restTemplate.postForEntity(
+                    paymentServiceUrl + "/payments",
+                    paymentRequest,
+                    PaymentResponseDto.class
+            );
 
-        System.out.println(paymentResponse.getBody());
-        if (Objects.requireNonNull(paymentResponse.getBody()).getMessage().equals("Approved")) {
-            return ResponseEntity.status(HttpStatus.CREATED).body(saleService.save(saleModel));
-        } else {
+            System.out.println(paymentResponse.getBody());
+            if (Objects.requireNonNull(paymentResponse.getBody()).getMessage().equals("Approved")) {
+                Runner.sendMessage(" Sale created ");
+                return ResponseEntity.status(HttpStatus.CREATED).body(saleService.save(saleModel));
+            } else {
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            }
+
+        } catch (Exception e) {
+            Runner.sendMessage(" error ");
+            e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
