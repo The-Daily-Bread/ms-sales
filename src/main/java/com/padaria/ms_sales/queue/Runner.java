@@ -14,6 +14,7 @@ public class Runner implements CommandLineRunner {
 
     private static RabbitTemplate rabbitTemplate = null;
     private static Receiver receiver = null;
+    private static final String TOPIC = "tdb-invoice-queue";
 
     public Runner(Receiver receiver, RabbitTemplate rabbitTemplate) {
         this.receiver = receiver;
@@ -29,7 +30,7 @@ public class Runner implements CommandLineRunner {
     }
 
     public static void sendMessage(String message) {
-        rabbitTemplate.convertAndSend(MessagingRabbitmqApplication.topicExchangeName, "foo.bar.baz", message);
+        rabbitTemplate.convertAndSend(MessagingRabbitmqApplication.topicExchangeName, TOPIC, message);
         System.out.println("Mandei: " + message);
     }
 

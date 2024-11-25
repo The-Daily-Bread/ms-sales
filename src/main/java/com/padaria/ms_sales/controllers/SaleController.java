@@ -1,9 +1,8 @@
 package com.padaria.ms_sales.controllers;
 
-import com.padaria.ms_sales.dtos.PaymentRequestDto;
-import com.padaria.ms_sales.dtos.PaymentResponseDto;
-import com.padaria.ms_sales.dtos.ProductSaleDto;
-import com.padaria.ms_sales.dtos.SaleDto;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.padaria.ms_sales.dtos.*;
 import com.padaria.ms_sales.models.ProductModel;
 import com.padaria.ms_sales.models.ProductSaleModel;
 import com.padaria.ms_sales.models.SaleModel;
@@ -22,9 +21,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 
 @RestController
 public class SaleController {
@@ -72,6 +69,10 @@ public class SaleController {
         paymentRequest.setTotalValue(saleModel.getTotalValue());
         paymentRequest.setPaymentMethod(saleModel.getPaymentMethod());
 
+        SaleModel savedSale = saleService.save(saleModel);
+        notifySaleCreated(savedSale);
+        System.out.println("Sale sent " + savedSale.toString());
+
         try {
             ResponseEntity<PaymentResponseDto> paymentResponse = restTemplate.postForEntity(
                     paymentServiceUrl + "/payments",
@@ -81,16 +82,54 @@ public class SaleController {
 
             System.out.println(paymentResponse.getBody());
             if (Objects.requireNonNull(paymentResponse.getBody()).getMessage().equals("Approved")) {
-                Runner.sendMessage(" Sale created ");
-                return ResponseEntity.status(HttpStatus.CREATED).body(saleService.save(saleModel));
+//                SaleModel savedSale = saleService.save(saleModel);
+//                notifySaleCreated(savedSale);
+                return ResponseEntity.status(HttpStatus.CREATED).body(savedSale);
             } else {
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
             }
 
         } catch (Exception e) {
-            Runner.sendMessage(" error ");
             e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
+    }
+
+    private void notifySaleCreated(SaleModel saleModel) {
+        MqttInvoiceDto mqttInvoiceDto = new MqttInvoiceDto();
+        Date date = new Date();
+        ArrayList<MqttInvoiceItemDto> items = getMqttInvoiceItemDtos(saleModel);
+
+        mqttInvoiceDto.setId(Math.abs(saleModel.getSalesId().hashCode()));
+        mqttInvoiceDto.setInvoiceDate(date);
+        mqttInvoiceDto.setInvoiceNumber(UUID.randomUUID().toString());
+        mqttInvoiceDto.setCustomer(saleModel.getClientEmail());
+        mqttInvoiceDto.setVendor("The-Daily-Bread");
+        mqttInvoiceDto.setDueDate(new Date(date.getTime() + 604800000));
+        mqttInvoiceDto.setItems(items);
+
+        try {
+            ObjectMapper objectMapper = new ObjectMapper();
+            String message = objectMapper.writeValueAsString(mqttInvoiceDto);
+
+            Runner.sendMessage(message);
+        } catch (JsonProcessingException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private ArrayList<MqttInvoiceItemDto> getMqttInvoiceItemDtos(SaleModel saleModel) {
+        ArrayList<MqttInvoiceItemDto> items = new ArrayList<>();
+
+        for (ProductSaleModel productSaleModel : saleModel.getProductSales()) {
+            MqttInvoiceItemDto item = new MqttInvoiceItemDto();
+            item.setId(Math.abs(productSaleModel.getProduct().getId().hashCode()));
+            item.setDescription(productSaleModel.getProduct().getName());
+            item.setQuantity(productSaleModel.getQuantity());
+            item.setRate(productSaleModel.getProduct().getPrice());
+
+            items.add(item);
+        }
+        return items;
     }
 }
